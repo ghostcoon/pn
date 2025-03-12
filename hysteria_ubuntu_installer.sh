@@ -372,7 +372,6 @@ start_hysteria() {
     fi
 }
 
-
 # 显示客户端配置
 show_client_config() {
     # 如果配置文件存在，读取配置信息
