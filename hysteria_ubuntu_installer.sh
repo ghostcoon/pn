@@ -371,7 +371,7 @@ start_hysteria() {
         exit 1
     fi
 }
-}
+
 
 # 显示客户端配置
 show_client_config() {
