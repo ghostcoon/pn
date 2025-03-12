@@ -54,52 +54,74 @@ install_dependencies() {
     echo -e "${GREEN}依赖安装完成${PLAIN}"
 }
 
-# 下载函数 - 尝试多个源和加速器
-download_hysteria() {
-    echo -e "${BLUE}正在尝试从多个源下载 Hysteria...${PLAIN}"
+# 验证下载的文件是否为有效的二进制文件
+verify_binary() {
+    local file=$1
+    
+    # 检查文件是否存在
+    if [ ! -f "$file" ]; then
+        return 1
+    fi
+    
+    # 检查文件大小 (至少应该有 5MB)
+    local size=$(stat -c %s "$file" 2>/dev/null || stat -f %z "$file" 2>/dev/null)
+    if [ -z "$size" ] || [ "$size" -lt 5000000 ]; then
+        echo -e "${RED}文件大小异常: $size 字节${PLAIN}"
+        return 1
+    fi
+    
+    # 检查文件类型
+    local file_type=$(file -b "$file")
+    if ! echo "$file_type" | grep -q "ELF"; then
+        echo -e "${RED}不是有效的可执行文件: $file_type${PLAIN}"
+        return 1
+    fi
+    
+    return 0
+}
+
+# 下载函数 - 使用官方安装脚本
+download_official() {
+    echo -e "${BLUE}正在使用官方脚本安装 Hysteria...${PLAIN}"
+    
+    # 使用官方安装脚本
+    if curl -fsSL https://get.hy2.sh/ | bash; then
+        if [ -f "/usr/local/bin/hysteria" ]; then
+            echo -e "${GREEN}使用官方脚本安装成功${PLAIN}"
+            return 0
+        fi
+    fi
+    
+    echo -e "${RED}官方脚本安装失败${PLAIN}"
+    return 1
+}
+
+# 下载函数 - 直接下载
+download_direct() {
+    echo -e "${BLUE}正在尝试直接下载 Hysteria...${PLAIN}"
     
     # 下载地址列表
-    GITHUB_URL="https://github.com/apernet/hysteria/releases/download/app/${LATEST_VERSION}/hysteria-${OS}-${ARCH}"
-    GHPROXY_URL="https://ghproxy.com/https://github.com/apernet/hysteria/releases/download/app/${LATEST_VERSION}/hysteria-${OS}-${ARCH}"
-    MIRROR1_URL="https://hub.gitmirror.com/https://github.com/apernet/hysteria/releases/download/app/${LATEST_VERSION}/hysteria-${OS}-${ARCH}"
-    MIRROR2_URL="https://gh.api.99988866.xyz/https://github.com/apernet/hysteria/releases/download/app/${LATEST_VERSION}/hysteria-${OS}-${ARCH}"
+    local URLS=(
+        "https://github.com/apernet/hysteria/releases/download/app/${LATEST_VERSION}/hysteria-${OS}-${ARCH}"
+        "https://download.fastgit.org/apernet/hysteria/releases/download/app/${LATEST_VERSION}/hysteria-${OS}-${ARCH}"
+        "https://ghproxy.net/https://github.com/apernet/hysteria/releases/download/app/${LATEST_VERSION}/hysteria-${OS}-${ARCH}"
+        "https://mirror.ghproxy.com/https://github.com/apernet/hysteria/releases/download/app/${LATEST_VERSION}/hysteria-${OS}-${ARCH}"
+    )
     
-    # 尝试使用 gitmirror 加速
-    echo -e "${YELLOW}尝试使用 gitmirror.com 加速下载...${PLAIN}"
-    if curl -L -o "$TEMP_DIR/hysteria" "$MIRROR1_URL" --connect-timeout 10 -m 300; then
-        echo -e "${GREEN}使用 gitmirror.com 下载成功${PLAIN}"
-        return 0
-    fi
+    for URL in "${URLS[@]}"; do
+        echo -e "${YELLOW}尝试从 $URL 下载...${PLAIN}"
+        if curl -L -o "$TEMP_DIR/hysteria" "$URL" --connect-timeout 10 -m 300; then
+            if verify_binary "$TEMP_DIR/hysteria"; then
+                echo -e "${GREEN}下载成功并验证通过${PLAIN}"
+                return 0
+            else
+                echo -e "${RED}下载的文件无效，尝试其他源${PLAIN}"
+                rm -f "$TEMP_DIR/hysteria"
+            fi
+        fi
+    done
     
-    # 尝试使用 ghproxy 加速
-    echo -e "${YELLOW}尝试使用 ghproxy.com 加速下载...${PLAIN}"
-    if curl -L -o "$TEMP_DIR/hysteria" "$GHPROXY_URL" --connect-timeout 10 -m 300; then
-        echo -e "${GREEN}使用 ghproxy.com 下载成功${PLAIN}"
-        return 0
-    fi
-    
-    # 尝试使用 99988866 加速
-    echo -e "${YELLOW}尝试使用 99988866.xyz 加速下载...${PLAIN}"
-    if curl -L -o "$TEMP_DIR/hysteria" "$MIRROR2_URL" --connect-timeout 10 -m 300; then
-        echo -e "${GREEN}使用 99988866.xyz 下载成功${PLAIN}"
-        return 0
-    fi
-    
-    # 尝试直接从 GitHub 下载
-    echo -e "${YELLOW}尝试直接从 GitHub 下载...${PLAIN}"
-    if curl -L -o "$TEMP_DIR/hysteria" "$GITHUB_URL" --connect-timeout 10 -m 300; then
-        echo -e "${GREEN}从 GitHub 下载成功${PLAIN}"
-        return 0
-    fi
-    
-    # 尝试使用 wget 下载
-    echo -e "${YELLOW}尝试使用 wget 下载...${PLAIN}"
-    if wget -O "$TEMP_DIR/hysteria" "$MIRROR1_URL" || wget -O "$TEMP_DIR/hysteria" "$GHPROXY_URL" || wget -O "$TEMP_DIR/hysteria" "$MIRROR2_URL" || wget -O "$TEMP_DIR/hysteria" "$GITHUB_URL"; then
-        echo -e "${GREEN}使用 wget 下载成功${PLAIN}"
-        return 0
-    fi
-    
-    echo -e "${RED}所有下载方式均失败${PLAIN}"
+    echo -e "${RED}所有直接下载方式均失败${PLAIN}"
     return 1
 }
 
@@ -113,47 +135,46 @@ install_hysteria() {
         systemctl stop hysteria 2>/dev/null
     fi
     
-    # 下载 Hysteria
-    if ! download_hysteria; then
-        echo -e "${RED}下载 Hysteria 失败，请检查网络连接或手动下载${PLAIN}"
-        echo -e "${YELLOW}您可以尝试手动下载并安装：${PLAIN}"
-        echo -e "wget -O /usr/local/bin/hysteria https://ghproxy.com/https://github.com/apernet/hysteria/releases/download/app/${LATEST_VERSION}/hysteria-${OS}-${ARCH}"
-        echo -e "chmod +x /usr/local/bin/hysteria"
-        exit 1
+    # 首先尝试官方安装脚本
+    if download_official; then
+        INSTALLED_VERSION=$(/usr/local/bin/hysteria version | grep Version | awk '{print $2}')
+        echo -e "${GREEN}Hysteria ${INSTALLED_VERSION} 安装成功！${PLAIN}"
+        return 0
     fi
     
-    # 安装 Hysteria
-    chmod +x "$TEMP_DIR/hysteria"
-    mv "$TEMP_DIR/hysteria" /usr/local/bin/
-    
-    # 验证安装并确保权限正确
-    if [ ! -f "/usr/local/bin/hysteria" ]; then
-        echo -e "${RED}Hysteria 安装失败${PLAIN}"
-        exit 1
-    fi
-    
-    # 确保执行权限
-    chmod 755 /usr/local/bin/hysteria
-    
-    # 检查版本
-    if ! /usr/local/bin/hysteria version; then
-        echo -e "${RED}Hysteria 可执行文件无法运行，可能下载不完整或系统不兼容${PLAIN}"
-        echo -e "${YELLOW}尝试使用备用方法安装...${PLAIN}"
+    # 如果官方脚本失败，尝试直接下载
+    if download_direct; then
+        # 安装 Hysteria
+        chmod +x "$TEMP_DIR/hysteria"
+        mv "$TEMP_DIR/hysteria" /usr/local/bin/
         
-        # 备用安装方法
-        curl -fsSL https://get.hy2.sh/ | bash
-        
-        if ! /usr/local/bin/hysteria version; then
-            echo -e "${RED}备用安装方法也失败，请手动安装${PLAIN}"
+        # 验证安装并确保权限正确
+        if [ ! -f "/usr/local/bin/hysteria" ]; then
+            echo -e "${RED}Hysteria 安装失败${PLAIN}"
             exit 1
         fi
+        
+        # 确保执行权限
+        chmod 755 /usr/local/bin/hysteria
+        
+        # 检查版本
+        if ! /usr/local/bin/hysteria version; then
+            echo -e "${RED}Hysteria 可执行文件无法运行，可能下载不完整或系统不兼容${PLAIN}"
+            exit 1
+        fi
+        
+        INSTALLED_VERSION=$(/usr/local/bin/hysteria version | grep Version | awk '{print $2}')
+        echo -e "${GREEN}Hysteria ${INSTALLED_VERSION} 安装成功！${PLAIN}"
+        
+        # 清理临时文件
+        rm -rf $TEMP_DIR
+        return 0
     fi
     
-    INSTALLED_VERSION=$(/usr/local/bin/hysteria version | grep Version | awk '{print $2}')
-    echo -e "${GREEN}Hysteria ${INSTALLED_VERSION} 安装成功！${PLAIN}"
-    
-    # 清理临时文件
-    rm -rf $TEMP_DIR
+    echo -e "${RED}所有安装方法均失败，请手动安装${PLAIN}"
+    echo -e "${YELLOW}您可以尝试手动安装：${PLAIN}"
+    echo -e "curl -fsSL https://get.hy2.sh/ | bash"
+    exit 1
 }
 
 # 配置 Hysteria
@@ -197,14 +218,23 @@ configure_hysteria() {
     read -p "请输入下载速度 (Mbps) [默认: 100]: " DOWN_MBPS
     DOWN_MBPS=${DOWN_MBPS:-100}
     
+    # 生成自签名证书
+    echo -e "${BLUE}正在生成自签名证书...${PLAIN}"
+    openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
+      -keyout /etc/hysteria/private.key -out /etc/hysteria/cert.crt \
+      -subj "/CN=$SERVER_IP"
+    
+    # 设置证书权限
+    chmod 644 /etc/hysteria/cert.crt
+    chmod 600 /etc/hysteria/private.key
+    
     # 创建配置文件
     cat > /etc/hysteria/config.yaml << EOF
 listen: :$PORT
 
-acme:
-  domains:
-    - $SERVER_IP
-  email: admin@example.com
+tls:
+  cert: /etc/hysteria/cert.crt
+  key: /etc/hysteria/private.key
 
 auth:
   type: password
@@ -311,6 +341,13 @@ start_hysteria() {
         exit 1
     fi
     
+    # 测试配置文件是否有效
+    echo -e "${BLUE}测试配置文件...${PLAIN}"
+    if ! /usr/local/bin/hysteria server --config /etc/hysteria/config.yaml --disable-update-check --test; then
+        echo -e "${RED}配置文件测试失败，请检查配置${PLAIN}"
+        exit 1
+    fi
+    
     systemctl enable hysteria
     systemctl start hysteria
     
@@ -330,7 +367,7 @@ start_hysteria() {
     fi
 }
 
-    # 显示客户端配置
+# 显示客户端配置
 show_client_config() {
     # 如果配置文件存在，读取配置信息
     if [ -f "/etc/hysteria/info.txt" ]; then
@@ -395,6 +432,16 @@ check_hysteria_status() {
         if [ ! -f "/etc/hysteria/config.yaml" ]; then
             echo -e "${RED}配置文件不存在，需要重新配置${PLAIN}"
             configure_hysteria
+        fi
+        
+        # 检查证书文件
+        if [ ! -f "/etc/hysteria/cert.crt" ] || [ ! -f "/etc/hysteria/private.key" ]; then
+            echo -e "${RED}证书文件不存在，重新生成...${PLAIN}"
+            openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
+              -keyout /etc/hysteria/private.key -out /etc/hysteria/cert.crt \
+              -subj "/CN=$(grep SERVER_IP= /etc/hysteria/info.txt | cut -d= -f2)"
+            chmod 644 /etc/hysteria/cert.crt
+            chmod 600 /etc/hysteria/private.key
         fi
         
         # 尝试重启服务
