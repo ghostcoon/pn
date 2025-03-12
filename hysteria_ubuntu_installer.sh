@@ -126,13 +126,29 @@ install_hysteria() {
     chmod +x "$TEMP_DIR/hysteria"
     mv "$TEMP_DIR/hysteria" /usr/local/bin/
     
-    # 验证安装
+    # 验证安装并确保权限正确
     if [ ! -f "/usr/local/bin/hysteria" ]; then
         echo -e "${RED}Hysteria 安装失败${PLAIN}"
         exit 1
     fi
     
+    # 确保执行权限
+    chmod 755 /usr/local/bin/hysteria
+    
     # 检查版本
+    if ! /usr/local/bin/hysteria version; then
+        echo -e "${RED}Hysteria 可执行文件无法运行，可能下载不完整或系统不兼容${PLAIN}"
+        echo -e "${YELLOW}尝试使用备用方法安装...${PLAIN}"
+        
+        # 备用安装方法
+        curl -fsSL https://get.hy2.sh/ | bash
+        
+        if ! /usr/local/bin/hysteria version; then
+            echo -e "${RED}备用安装方法也失败，请手动安装${PLAIN}"
+            exit 1
+        fi
+    fi
+    
     INSTALLED_VERSION=$(/usr/local/bin/hysteria version | grep Version | awk '{print $2}')
     echo -e "${GREEN}Hysteria ${INSTALLED_VERSION} 安装成功！${PLAIN}"
     
@@ -236,6 +252,9 @@ LimitNOFILE=infinity
 WantedBy=multi-user.target
 EOF
 
+    # 确保配置文件权限正确
+    chmod -R 755 /etc/hysteria
+    
     # 重载 systemd
     systemctl daemon-reload
     
@@ -272,6 +291,26 @@ configure_firewall() {
 start_hysteria() {
     echo -e "${BLUE}正在启动 Hysteria...${PLAIN}"
     
+    # 确保配置目录和文件权限正确
+    chmod -R 755 /etc/hysteria
+    
+    # 检查可执行文件是否存在且有执行权限
+    if [ ! -x "/usr/local/bin/hysteria" ]; then
+        echo -e "${RED}Hysteria 可执行文件不存在或没有执行权限${PLAIN}"
+        if [ -f "/usr/local/bin/hysteria" ]; then
+            chmod 755 /usr/local/bin/hysteria
+        else
+            echo -e "${RED}请重新安装 Hysteria${PLAIN}"
+            exit 1
+        fi
+    fi
+    
+    # 测试 Hysteria 是否可以正常运行
+    if ! /usr/local/bin/hysteria version; then
+        echo -e "${RED}Hysteria 可执行文件无法运行，请检查系统兼容性${PLAIN}"
+        exit 1
+    fi
+    
     systemctl enable hysteria
     systemctl start hysteria
     
@@ -282,11 +321,16 @@ start_hysteria() {
     else
         echo -e "${RED}Hysteria 启动失败，请检查日志${PLAIN}"
         journalctl -u hysteria -n 20
+        
+        # 尝试直接运行以查看更详细的错误
+        echo -e "${YELLOW}尝试直接运行 Hysteria 以查看详细错误...${PLAIN}"
+        /usr/local/bin/hysteria server --config /etc/hysteria/config.yaml
+        
         exit 1
     fi
 }
 
-# 显示客户端配置
+    # 显示客户端配置
 show_client_config() {
     # 如果配置文件存在，读取配置信息
     if [ -f "/etc/hysteria/info.txt" ]; then
@@ -347,7 +391,7 @@ check_hysteria_status() {
         echo -e "${RED}Hysteria 未运行${PLAIN}"
         echo -e "${YELLOW}正在尝试修复...${PLAIN}"
         
-               # 检查配置文件
+        # 检查配置文件
         if [ ! -f "/etc/hysteria/config.yaml" ]; then
             echo -e "${RED}配置文件不存在，需要重新配置${PLAIN}"
             configure_hysteria
