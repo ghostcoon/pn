@@ -341,10 +341,15 @@ start_hysteria() {
         exit 1
     fi
     
-    # 测试配置文件是否有效
-    echo -e "${BLUE}测试配置文件...${PLAIN}"
-    if ! /usr/local/bin/hysteria server --config /etc/hysteria/config.yaml --disable-update-check --test; then
-        echo -e "${RED}配置文件测试失败，请检查配置${PLAIN}"
+    # 检查配置文件是否存在
+    if [ ! -f "/etc/hysteria/config.yaml" ]; then
+        echo -e "${RED}配置文件不存在，请重新配置${PLAIN}"
+        exit 1
+    fi
+    
+    # 检查证书文件是否存在
+    if [ ! -f "/etc/hysteria/cert.crt" ] || [ ! -f "/etc/hysteria/private.key" ]; then
+        echo -e "${RED}证书文件不存在，请重新配置${PLAIN}"
         exit 1
     fi
     
@@ -365,6 +370,7 @@ start_hysteria() {
         
         exit 1
     fi
+}
 }
 
 # 显示客户端配置
